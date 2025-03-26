@@ -3,6 +3,7 @@ package datastreamer
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -1077,4 +1078,21 @@ func (f *StreamFile) truncateFile(entryNum uint64) error {
 	}
 
 	return nil
+}
+
+func (f *StreamFile) WriteParsedFileContents(writer io.Writer) (err error) {
+	var it *iteratorFile
+	var endOfEntries bool
+
+	for it, err = f.iteratorFrom(0, true); !endOfEntries && err == nil; endOfEntries, err = f.iteratorNext(it) {
+		if parsedEntry, err := parseFileEntry(it.Entry.Type, it.Entry.Data); err == nil {
+			if s, ok := parsedEntry.(fmt.Stringer); ok {
+				writer.Write([]byte(it.Entry.Type.String() + "{ "))
+				_, err = writer.Write([]byte(s.String() + " }\n\n"))
+			} else {
+				err = fmt.Errorf("unparseable entry: %d", it.Entry.Type)
+			}
+		}
+	}
+	return err
 }

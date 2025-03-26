@@ -54,3 +54,47 @@ func TestWriteAndReadHeader(t *testing.T) {
 	assert.Equal(t, uint64(10), sf.header.TotalEntries)
 	assert.Equal(t, uint64(4096), sf.header.TotalLength)
 }
+
+func preTestWriteParsedFileContents(streamFileName string, parsedFileName string) (*StreamFile, *os.File, error) {
+	streamFile, err := NewStreamFile(streamFileName, 1, 137, 1)
+	if err != nil {
+		return nil, nil, err
+	}
+	_, err = os.Stat(parsedFileName)
+	if err == nil {
+		if err = os.Remove(parsedFileName); err != nil {
+			return nil, nil, err
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, nil, err
+	}
+	var outputFile *os.File
+	if outputFile, err = os.Create(parsedFileName); err != nil {
+		return nil, nil, err
+	}
+	return streamFile, outputFile, nil
+}
+
+func postTestWriteParsedFileContents(parsedFileName string) error {
+	if _, err := os.Stat(parsedFileName); err == nil {
+		return os.Remove(parsedFileName)
+	}
+	return nil
+}
+
+func TestWriteParsedFileContents(t *testing.T) {
+	const parsedFilePath = "../testdata/parsed"
+	const streamFilePath = "../testdata/datarelay.bin"
+	streamFile, outputFile, err := preTestWriteParsedFileContents(streamFilePath, parsedFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = streamFile.WriteParsedFileContents(outputFile); err != nil {
+		panic(err)
+	}
+
+	//if err = postTestWriteParsedFileContents(parsedFilePath); err != nil {
+	//	t.Fatal(err)
+	//}
+}
