@@ -1,0 +1,43 @@
+version: "3.8"
+networks:
+  default:
+    name: "relay"
+    driver: bridge
+
+services:
+  relay-parent:
+    container_name: relay1
+    image: datastream-relay:test
+    volumes:
+      - ./config/config.toml:/app/config.toml
+      - ./data/:/data
+    command:
+      - "/bin/sh"
+      - "-c"
+      - "/app/dsrelay --cfg /app/config.toml"
+
+
+  relay-client:
+    container_name: relay2
+    image: alpine:3.19.0
+    command: >
+      sleep 1
+
+  prometheus:
+    container_name: prom
+    image: prom/prometheus:v3.2.1
+    command:
+      --
+#      - --config.file=
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:11.6.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_LOG_LEVEL=debug
+      - GF_AUTH_BASIC_ENABLED=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_FEATURE_TOGGLES_ENABLE=publicDashboards
+

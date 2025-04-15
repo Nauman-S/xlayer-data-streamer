@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/0xPolygonHermez/zkevm-data-streamer/metrics"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -31,7 +32,9 @@ type config struct {
 	InactivityTimeout time.Duration
 	Log               string
 
-	DeleteData bool // For X Layer
+	DeleteData     bool   // For X Layer
+	MetricsEnabled bool   // For X Layer
+	MetricsAddress string // For X Layer
 }
 
 func main() {
@@ -99,7 +102,8 @@ func defaultConfig() (*config, error) {
 		InactivityTimeout: 120 * time.Second, //nolint:mnd
 		Log:               "info",
 
-		DeleteData: false, // For X Layer
+		DeleteData:     false, // For X Layer
+		MetricsEnabled: false, //For X Layer
 	}, nil
 }
 
@@ -207,6 +211,10 @@ func run(ctx *cli.Context) error {
 		deleteDataFile(cfg.File)
 		log.Infof(">> Data file deleted: %s succeeded!", cfg.File)
 		time.Sleep(1 * time.Second) //nolint:gomnd
+	}
+
+	if cfg.MetricsEnabled {
+		metrics.Setup(cfg.MetricsAddress)
 	}
 
 	// Create relay server

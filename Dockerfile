@@ -1,5 +1,5 @@
 # CONTAINER FOR BUILDING BINARY
-FROM golang:1.21 AS build
+FROM golang:1.23 AS build
 
 # INSTALL DEPENDENCIES
 RUN go install github.com/gobuffalo/packr/v2/packr2@v2.8.3
@@ -10,6 +10,7 @@ RUN go mod download
 # BUILD BINARY
 COPY relay /src/relay
 COPY datastreamer /src/datastreamer
+COPY metrics /src/metrics
 COPY log /src/log
 COPY Makefile version.go config/environments/testnet/config.toml /src/
 RUN make build-dsrelay
@@ -18,6 +19,7 @@ RUN make build-dsrelay
 FROM alpine:3.19.0
 
 COPY --from=build /src/dist/dsrelay /app/dsrelay
+RUN ls -l /app/dsrelay
 COPY --from=build /src/config.toml /app/sample.config.toml
 
 ARG USER=dsrelay

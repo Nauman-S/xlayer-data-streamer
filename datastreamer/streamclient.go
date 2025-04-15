@@ -3,6 +3,7 @@ package datastreamer
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/0xPolygonHermez/zkevm-data-streamer/metrics"
 	"io"
 	"net"
 	"time"
@@ -182,7 +183,7 @@ func (c *StreamClient) ExecCommandGetBookmark(fromBookmark []byte) (FileEntry, e
 // execCommand executes a valid client TCP command with deferred command result possibility
 func (c *StreamClient) execCommand(cmd Command, deferredResult bool,
 	fromEntry uint64, fromBookmark []byte) (HeaderEntry, FileEntry, error) {
-	log.Debugf("%s Executing command %d[%s]...", c.ID, cmd, StrCommand[cmd])
+	log.Infof("%s Executing command %d[%s]...", c.ID, cmd, StrCommand[cmd])
 	header := HeaderEntry{}
 	entry := FileEntry{}
 
@@ -357,7 +358,6 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 		log.Errorf("%s Error reading data entry", c.ID)
 		return FileEntry{}, ErrReadingDataEntry
 	}
-
 	bufferAux := make([]byte, length-FixedSizeFileEntry)
 	err = c.readContent(bufferAux)
 	if err != nil {
@@ -370,7 +370,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	if err != nil {
 		return d, err
 	}
-
+	metrics.EffectiveTCPBytes.Add(float64(length))
 	return d, nil
 }
 
@@ -398,7 +398,7 @@ func (c *StreamClient) readHeaderEntry() (HeaderEntry, error) {
 		log.Error("Error decoding binary header")
 		return h, err
 	}
-
+	metrics.EffectiveTCPBytes.Add(float64(headerSize))
 	return h, nil
 }
 
@@ -437,6 +437,8 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	if err != nil {
 		return e, err
 	}
+
+	metrics.EffectiveTCPBytes.Add(float64(length))
 	// PrintResultEntry(e)
 	return e, nil
 }
