@@ -1,0 +1,7 @@
+Server = "relay-parent:7900"
+Port = 7900
+File = "/data/datarelay.bin"
+Log = "info"
+MetricsEnabled = true
+MetricsAddress = "127.0.0.1:6060"
+batchSize = 1

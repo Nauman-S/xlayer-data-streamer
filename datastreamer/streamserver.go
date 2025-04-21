@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -51,6 +52,7 @@ const (
 	CmdStartEndBookmark                    // CmdStartEndBookmark for the start and end from bookmark TCP client command
 	CmdEntry                               // CmdEntry for the get entry TCP client command
 	CmdBookmark                            // CmdBookmark for the get bookmark TCP client command
+	CmdStartCompressed
 )
 
 const (
@@ -109,6 +111,8 @@ var (
 		CmdErrBadToBookmark:   "Bad to bookmark",
 		CmdErrInvalidCommand:  "Invalid command",
 	}
+
+	BatchSize = 0
 )
 
 // StreamServer type to manage a data stream server
@@ -260,6 +264,7 @@ func (s *StreamServer) checkClientInactivity() {
 		var clientsToKill = map[string]struct{}{}
 		s.mutexClients.Lock()
 		for _, client := range s.clients {
+			log.Infof("client %s send buffer size: %d bytes", client.clientID, getSendBufferSize(client.conn.(*net.TCPConn)))
 			if client.lastActivity.Add(s.inactivityTimeout).Before(time.Now()) {
 				clientsToKill[client.clientID] = struct{}{}
 			}
@@ -271,6 +276,21 @@ func (s *StreamServer) checkClientInactivity() {
 			s.killClient(clientID)
 		}
 	}
+}
+
+func getSendBufferSize(conn *net.TCPConn) int {
+	rawConn, err := conn.SyscallConn()
+	if err != nil {
+		return -1
+	}
+	var size int
+	rawConn.Control(func(fd uintptr) {
+		size, err = syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_SNDBUF)
+		if err != nil {
+			size = -1
+		}
+	})
+	return size
 }
 
 // waitConnections waits for a new client connection and creates a goroutine to manages it
@@ -303,8 +323,20 @@ func (s *StreamServer) waitConnections() {
 // handleConnection reads from the client connection and processes the received commands
 func (s *StreamServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
+	var err error
 
 	clientID := conn.RemoteAddr().String()
+	if strings.Contains(clientID, "192.168.1.11") {
+		log.Infof("client %s allocating send buffer size: %d bytes", clientID, getSendBufferSize(conn.(*net.TCPConn)))
+		err = conn.(*net.TCPConn).SetWriteBuffer(2 * 1024 * 1024) // 2MB
+	}
+	actual := getSendBufferSize(conn.(*net.TCPConn))
+	log.Warnf("client id %s, got %.2f KB", clientID, float64(actual)/1024)
+
+	if err != nil {
+		log.Errorf("Error setting write buffer size for client %s: %v", clientID, err)
+		return
+	}
 	log.Debugf("New connection: %s", clientID)
 
 	s.mutexClients.Lock()
@@ -1166,6 +1198,8 @@ func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) erro
 	}
 
 	// Loop data entries from file stream iterator
+	var batchEntries [][]byte
+	currentBatchSize := 0
 	for {
 		end, err := s.streamFile.iteratorNext(iterator)
 		if err != nil {
@@ -1179,9 +1213,18 @@ func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) erro
 
 		// Send the file data entry
 		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
+		batchEntries = append(batchEntries, binaryEntry)
+		currentBatchSize++
 		log.Debugf("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, client.clientID)
 		if client.conn != nil {
-			_, err = TimeoutWrite(client, binaryEntry, s.writeTimeout)
+			if currentBatchSize >= BatchSize {
+				//_, err = TimeoutWrite(client, binaryEntry, s.writeTimeout)
+				if err = writeBatchEntriesToClient(client, batchEntries, s.writeTimeout); err == nil {
+					batchEntries = batchEntries[:0]
+					currentBatchSize = 0
+				}
+			}
+
 		} else {
 			err = ErrNilConnection
 		}
@@ -1196,6 +1239,36 @@ func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) erro
 	s.streamFile.iteratorEnd(iterator)
 
 	return nil
+}
+
+func writeBatchEntriesToClient(client *client, batchEntries [][]byte, timeout time.Duration) error {
+	if client.conn == nil {
+		return ErrNilConnection
+	}
+
+	// Flatten the batch into a single slice of bytes
+	batch := flattenBatch(batchEntries)
+
+	log.Debugf("Writing batch of %d entries (total size=%d bytes) to client %s...", len(batchEntries), len(batch), client.clientID)
+
+	// Write the flattened batch
+	_, err := TimeoutWrite(client, batch, timeout)
+	return err
+}
+
+func flattenBatch(batchEntries [][]byte) []byte {
+	totalSize := 0
+	for _, entry := range batchEntries {
+		totalSize += len(entry)
+	}
+
+	// Create a single byte slice to hold the entire batch
+	flattened := make([]byte, 0, totalSize)
+	for _, entry := range batchEntries {
+		flattened = append(flattened, entry...)
+	}
+
+	return flattened
 }
 
 // streamingRangeEntry streams the range of file entries until toEntry bookmark (excluding)
@@ -1421,7 +1494,7 @@ func TimeoutWrite(client *client, data []byte, timeout time.Duration) (int, erro
 	if err != nil {
 		log.Warnf("Error setting write deadline: %v", err)
 	}
-	n, err := client.conn.Write(data)
+	n, err := client.conn.(*net.TCPConn).Write(data)
 	if err != nil {
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			log.Debugf("Write deadline exceeded for client %s, error: %v", client.clientID, err)

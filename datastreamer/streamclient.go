@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/metrics"
+	dto "github.com/prometheus/client_model/go"
 	"io"
 	"net"
 	"time"
@@ -44,6 +45,8 @@ type StreamClient struct {
 	processEntry ProcessEntryFunc // Callback function to process the entry
 	relayServer  *StreamServer    // Only used by the client on the stream relay server
 }
+
+var bytesReceived float64 = 0
 
 // NewClient creates a new data stream client
 func NewClient(server string, streamType StreamType) (*StreamClient, error) {
@@ -95,6 +98,21 @@ func (c *StreamClient) Start() error {
 		}
 	}()
 
+	go func() {
+		for {
+			time.Sleep(defaultTimeout * 2)
+			var m = &dto.Metric{}
+			metrics.EffectiveTCPBytes.Write(m)
+			elapsedSeconds := (defaultTimeout * 2).Seconds()
+			bytesDelta := m.GetCounter().GetValue() - bytesReceived
+			throughputBps := (bytesDelta * 8) / elapsedSeconds
+
+			log.Infof("Nauman -Throughput: %.2f kbps\n", throughputBps/1000)
+			bytesReceived = m.GetCounter().GetValue()
+			log.Infof("Nauman -Bytes received: %.2f\n", bytesReceived)
+		}
+	}()
+
 	// Flag stared
 	c.started = true
 
@@ -122,6 +140,7 @@ func (c *StreamClient) connectServer() bool {
 			if c.streaming {
 				_, _, err = c.execCommand(CmdStart, true, c.nextEntry, nil)
 				if err != nil {
+					log.Errorf("%s Error restoring streaming: %v", c.ID, err)
 					c.closeConnection()
 					time.Sleep(defaultTimeout)
 					continue
@@ -213,7 +232,7 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool,
 	// Send the command parameters
 	switch cmd {
 	case CmdStart:
-		log.Debugf("%s ...from entry %d", c.ID, fromEntry)
+		log.Infof("%s ...from entry %d", c.ID, fromEntry)
 		// Send starting/from entry number
 		err = writeFullUint64(fromEntry, c.conn)
 		if err != nil {

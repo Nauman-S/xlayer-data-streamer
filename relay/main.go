@@ -35,6 +35,7 @@ type config struct {
 	DeleteData     bool   // For X Layer
 	MetricsEnabled bool   // For X Layer
 	MetricsAddress string // For X Layer
+	BatchSize      int
 }
 
 func main() {
@@ -104,6 +105,7 @@ func defaultConfig() (*config, error) {
 
 		DeleteData:     false, // For X Layer
 		MetricsEnabled: false, //For X Layer
+		BatchSize:      1,
 	}, nil
 }
 
@@ -215,6 +217,11 @@ func run(ctx *cli.Context) error {
 
 	if cfg.MetricsEnabled {
 		metrics.Setup(cfg.MetricsAddress)
+	}
+
+	if cfg.BatchSize > 0 {
+		datastreamer.BatchSize = cfg.BatchSize
+		log.Infof(">> Nauman- Batch size: %d", datastreamer.BatchSize)
 	}
 
 	// Create relay server

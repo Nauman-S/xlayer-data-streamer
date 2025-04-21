@@ -3,6 +3,9 @@ networks:
   default:
     name: "relay"
     driver: bridge
+    ipam:
+      config:
+        - subnet: "192.168.1.0/24"
 
 services:
   relay-parent:
@@ -15,13 +18,46 @@ services:
       - "/bin/sh"
       - "-c"
       - "/app/dsrelay --cfg /app/config.toml"
+    cap_add:
+      - SYS_ADMIN
+    privileged: true
+    sysctls:
+      net.ipv4.tcp_wmem: "4096 4194304 4194304"
+    networks:
+      default:
+        ipv4_address: 192.168.1.10
 
 
-  relay-client:
+
+  relay-client-1:
     container_name: relay2
-    image: alpine:3.19.0
-    command: >
-      sleep 1
+    image: datastream-relay:test
+    volumes:
+      - ./config/config2.toml:/app/config.toml
+      - ./data2/:/data
+    command:
+      - "/bin/sh"
+      - "-c"
+      - "/app/dsrelay --cfg /app/config.toml"
+    networks:
+      default:
+        ipv4_address: 192.168.1.11
+
+  relay-client-2:
+    container_name: relay3
+    image: datastream-relay:test
+    volumes:
+      - ./config/config3.toml:/app/config.toml
+      - ./data3/:/data
+    command:
+      - "/bin/sh"
+      - "-c"
+      - "/app/dsrelay --cfg /app/config.toml"
+
+    networks:
+      default:
+        ipv4_address: 192.168.1.12
+
 
   prometheus:
     container_name: prom
