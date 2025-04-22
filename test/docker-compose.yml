@@ -18,9 +18,6 @@ services:
       - "/bin/sh"
       - "-c"
       - "/app/dsrelay --cfg /app/config.toml"
-    cap_add:
-      - SYS_ADMIN
-    privileged: true
     sysctls:
       net.ipv4.tcp_wmem: "4096 4194304 4194304"
     networks:
@@ -53,7 +50,8 @@ services:
       - "/bin/sh"
       - "-c"
       - "/app/dsrelay --cfg /app/config.toml"
-
+    sysctls:
+      net.ipv4.tcp_rmem: "4096 8388608 16777216"
     networks:
       default:
         ipv4_address: 192.168.1.12
@@ -62,9 +60,6 @@ services:
   prometheus:
     container_name: prom
     image: prom/prometheus:v3.2.1
-    command:
-      --
-#      - --config.file=
 
   grafana:
     container_name: grafana

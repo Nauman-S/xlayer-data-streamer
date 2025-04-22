@@ -7,6 +7,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"io"
 	"net"
+	"syscall"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -90,6 +91,8 @@ func (c *StreamClient) Start() error {
 	// Goroutine to read from the server all entry types
 	go c.readEntries()
 
+	go c.monitorBufferSize()
+
 	// Goroutine to consume streaming entries
 	go func() {
 		err := c.getStreaming()
@@ -119,6 +122,15 @@ func (c *StreamClient) Start() error {
 	return nil
 }
 
+func (c *StreamClient) monitorBufferSize() {
+	for {
+		time.Sleep(defaultTimeout * 3)
+		if c.connected && c.conn != nil {
+			log.Infof("%s Buffer size %d", c.ID, getReceiveBufferSize(c.conn.(*net.TCPConn)))
+		}
+	}
+}
+
 // connectServer waits until the server connection is established and returns if a command result is pending
 func (c *StreamClient) connectServer() bool {
 	var err error
@@ -135,6 +147,7 @@ func (c *StreamClient) connectServer() bool {
 			c.connected = true
 			c.ID = c.conn.LocalAddr().String()
 			log.Infof("%s Connected to server: %s", c.ID, c.server)
+			log.Infof("%s Connection buffer size %d", c.ID, getReceiveBufferSize(c.conn.(*net.TCPConn)))
 
 			// Restore streaming
 			if c.streaming {
@@ -152,6 +165,21 @@ func (c *StreamClient) connectServer() bool {
 		}
 	}
 	return false
+}
+
+func getReceiveBufferSize(conn *net.TCPConn) int {
+	rawConn, err := conn.SyscallConn()
+	if err != nil {
+		return -1
+	}
+	var size int
+	rawConn.Control(func(fd uintptr) {
+		size, err = syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF)
+		if err != nil {
+			size = -1
+		}
+	})
+	return size
 }
 
 // closeConnection closes connection to the server
